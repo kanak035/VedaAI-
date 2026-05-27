@@ -24,6 +24,13 @@ export default function CreatePage() {
     setGeneratedPaper, setFormData, setError, resetJob,
   } = useAssignmentStore();
 
+  // Clear failed/stale state on page load
+  useEffect(() => {
+    if (jobStatus === 'failed' || jobStatus === 'idle') {
+      resetJob();
+    }
+  }, []);
+
   useWebSocket(currentJobId);
 
   // Poll job status every 3 seconds as fallback
