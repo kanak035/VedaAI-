@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Loader2, CheckCircle, XCircle, Zap } from 'lucide-react';
@@ -10,21 +10,59 @@ import AssignmentForm from '@/components/forms/AssignmentForm';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { useAssignmentStore } from '@/store/assignmentStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { createAssignment } from '@/lib/api';
+import { createAssignment, getAssignmentStatus } from '@/lib/api';
 import { AssignmentFormData } from '@/types';
 
 export default function CreatePage() {
   const router = useRouter();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const {
     currentJobId, jobStatus, progress, statusMessage,
     generatedPaper, error,
-    setCurrentJobId, setJobStatus, setFormData, setError, resetJob,
+    setCurrentJobId, setJobStatus, setProgress, setStatusMessage,
+    setGeneratedPaper, setFormData, setError, resetJob,
   } = useAssignmentStore();
 
   useWebSocket(currentJobId);
 
+  // Poll job status every 3 seconds as fallback
+  useEffect(() => {
+    if (!currentJobId) return;
+    if (jobStatus === 'completed' || jobStatus === 'failed') return;
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const data = await getAssignmentStatus(currentJobId);
+        if (data.status === 'completed' && data.generatedPaper) {
+          setJobStatus('completed');
+          setProgress(100);
+          setStatusMessage('Assessment generated successfully!');
+          setGeneratedPaper(data.generatedPaper);
+          if (pollRef.current) clearInterval(pollRef.current);
+        } else if (data.status === 'failed') {
+          setJobStatus('failed');
+          setError('Generation failed');
+          if (pollRef.current) clearInterval(pollRef.current);
+        } else if (data.status === 'processing') {
+          setJobStatus('processing');
+          if (progress < 80) setProgress(Math.min(progress + 10, 80));
+          setStatusMessage('Generating questions with AI...');
+        }
+      } catch {
+        // ignore poll errors
+      }
+    }, 3000);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [currentJobId, jobStatus]);
+
+  // Redirect to result when completed
   useEffect(() => {
     if (jobStatus === 'completed' && generatedPaper && currentJobId) {
+      if (pollRef.current) clearInterval(pollRef.current);
       setTimeout(() => router.push(`/result/${currentJobId}`), 1000);
     }
   }, [jobStatus, generatedPaper, currentJobId, router]);
@@ -34,9 +72,13 @@ export default function CreatePage() {
       resetJob();
       setFormData(data);
       setJobStatus('pending');
+      setProgress(5);
+      setStatusMessage('Creating assignment...');
       const result = await createAssignment(data);
       setCurrentJobId(result.jobId);
       setJobStatus('processing');
+      setProgress(15);
+      setStatusMessage('AI is generating your questions...');
       toast.success('Assessment generation started!');
     } catch (err: any) {
       const message = err.response?.data?.error || err.message || 'Failed to create assignment';
@@ -96,7 +138,7 @@ export default function CreatePage() {
                   </div>
                   <div>
                     <p style={{ fontWeight:600, color:'white', marginBottom:2 }}>Generating your assessment…</p>
-                    <p style={{ fontSize:13, color:'#9CA3AF' }}>{statusMessage || 'Please wait'}</p>
+                    <p style={{ fontSize:13, color:'#9CA3AF' }}>{statusMessage || 'Please wait, this may take up to 60 seconds'}</p>
                   </div>
                 </div>
                 <ProgressBar progress={progress} />
@@ -159,7 +201,7 @@ export default function CreatePage() {
                 <li>• Be specific with subject and grade level for better questions</li>
                 <li>• Upload reference material to generate topic-specific questions</li>
                 <li>• Use "Mixed" difficulty for balanced assessments</li>
-                <li>• Add instructions like "focus on chapter 3" for targeted generation</li>
+                <li>• First generation may take up to 60 seconds (server warm-up)</li>
               </ul>
             </div>
           </motion.div>
