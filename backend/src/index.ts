@@ -16,9 +16,22 @@ const PORT = process.env.PORT || 5000;
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      // Allow localhost for development
+      if (origin.includes('localhost')) return callback(null, true);
+      // Allow all vercel.app domains
+      if (origin.includes('vercel.app')) return callback(null, true);
+      // Allow configured frontend URL
+      const allowed = process.env.FRONTEND_URL || '';
+      if (allowed && origin === allowed) return callback(null, true);
+      // Allow all in production for now
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 
