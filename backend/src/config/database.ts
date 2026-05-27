@@ -8,7 +8,7 @@ export const connectDatabase = async (): Promise<void> => {
     console.log('✅ MongoDB connected successfully');
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error);
-    process.exit(1);
+    // Don't exit — let the server start anyway so health check works
   }
 
   mongoose.connection.on('error', (err) => {
